@@ -3,12 +3,11 @@ name: Build Android APK
 on:
   push:
     branches: [main]
-  # Optionally allow manual trigger
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04   # Stable Ubuntu version
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout code
@@ -29,25 +28,33 @@ jobs:
             wget
           pip install buildozer cython virtualenv
 
-      - name: Set up Android SDK
+      - name: Set up Android SDK (download)
         run: |
           export ANDROID_SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk
           mkdir -p $ANDROID_SDK_ROOT
           cd /tmp
-          # Download the latest command-line tools (check for latest version if needed)
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
           unzip -q commandlinetools-linux-11076708_latest.zip
           mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
           mv cmdline-tools $ANDROID_SDK_ROOT/cmdline-tools/latest
-          # Set environment variables for subsequent steps
+          # Set environment variables for this step and subsequent steps
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
-          # Accept licenses (silently) and install required components
+          # Also update PATH for the current shell (important!)
+          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+          # Verify sdkmanager is now in PATH
+          which sdkmanager || echo "sdkmanager not found"
+
+      - name: Accept licenses and install SDK components
+        run: |
+          export ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT
+          export ANDROID_HOME=$ANDROID_HOME
+          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+          # Accept licenses (silently)
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          # Install required packages
           sdkmanager "platform-tools" "build-tools;33.0.2" "platforms;android-33"
-          # Verify SDK installation
-          echo "SDK installed successfully"
 
       - name: Create buildozer.spec
         run: |
@@ -73,12 +80,11 @@ jobs:
 
       - name: Build APK with Buildozer
         run: |
-          # Ensure environment variables are available
           export ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT
           export ANDROID_HOME=$ANDROID_HOME
-          # Run buildozer, capture logs
+          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
           yes | buildozer android debug 2>&1 | tee build.log
-        continue-on-error: true   # We'll upload logs even if it fails
+        continue-on-error: true
 
       - name: Upload build log
         uses: actions/upload-artifact@v4
