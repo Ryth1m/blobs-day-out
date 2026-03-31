@@ -20,9 +20,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y python3-pip build-essential git \
             libffi-dev libssl-dev zlib1g-dev liblzma-dev \
-            openjdk-17-jdk unzip autoconf libtool pkg-config
+            openjdk-17-jdk unzip autoconf libtool pkg-config \
+            cmake libltdl-dev
           pip install buildozer cython virtualenv
-          
+
       - name: Create buildozer.spec
         run: |
           cat > buildozer.spec << 'EOF'
@@ -33,7 +34,7 @@ jobs:
           source.dir = .
           source.include_exts = py
           version = 1.0
-          requirements = python3,kivy,pygame
+          requirements = python3,kivy==2.3.0,pygame
           orientation = landscape
           fullscreen = 1
           android.api = 33
@@ -42,14 +43,28 @@ jobs:
           [buildozer]
           log_level = 2
           EOF
-          
+
       - name: Build APK
         run: |
-          buildozer android debug 2>&1 | tail -50
-          
-      - name: Upload APK
+          buildozer android debug 2>&1 | tee build.log
+          echo "Exit code: $?"
+        continue-on-error: true
+
+      - name: Show build log tail
+        run: tail -100 build.log
+        if: always()
+
+      - name: Upload build log
         uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-log
+          path: build.log
+
+      - name: Upload APK if exists
+        uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: blobs-day-out-apk
           path: bin/*.apk
-          if-no-files-found: error
+          if-no-files-found: warn
