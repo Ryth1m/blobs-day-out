@@ -24,23 +24,36 @@ jobs:
             openjdk-17-jdk unzip autoconf libtool pkg-config cmake
           pip install buildozer cython virtualenv
 
-      - name: Accept Android SDK licenses
+      - name: Set up Android SDK with correct paths
         run: |
-          mkdir -p $HOME/.android
-          echo "count=0" > $HOME/.android/repositories.cfg
-          JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
           export ANDROID_SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk
-          mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
+          mkdir -p $ANDROID_SDK_ROOT/tools/bin
+          mkdir -p $HOME/.android
+
+          # Download cmdline-tools
           cd /tmp
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-6514223_latest.zip
-          unzip -q commandlinetools-linux-6514223_latest.zip -d $ANDROID_SDK_ROOT/cmdline-tools
-          mv $ANDROID_SDK_ROOT/cmdline-tools/tools $ANDROID_SDK_ROOT/cmdline-tools/latest || true
-          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
+          unzip -q commandlinetools-linux-6514223_latest.zip
+
+          # Put sdkmanager where buildozer expects it (tools/bin/)
+          cp -r tools/* $ANDROID_SDK_ROOT/tools/
+          chmod +x $ANDROID_SDK_ROOT/tools/bin/sdkmanager
+
+          # Accept all licenses
+          echo "count=0" > $HOME/.android/repositories.cfg
+          yes | $ANDROID_SDK_ROOT/tools/bin/sdkmanager \
             --sdk_root=$ANDROID_SDK_ROOT \
-            --licenses || true
-          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
+            --licenses > /dev/null 2>&1 || true
+
+          # Install required SDK components
+          yes | $ANDROID_SDK_ROOT/tools/bin/sdkmanager \
             --sdk_root=$ANDROID_SDK_ROOT \
-            "platform-tools" "build-tools;33.0.2" "platforms;android-33" || true
+            "platform-tools" \
+            "build-tools;33.0.2" \
+            "platforms;android-33" || true
+
+          echo "SDK setup complete"
+          ls $ANDROID_SDK_ROOT/
 
       - name: Create buildozer.spec
         run: |
@@ -59,6 +72,7 @@ jobs:
           android.minapi = 21
           android.archs = arm64-v8a
           android.accept_sdk_license = True
+          android.sdk_path = /home/runner/.buildozer/android/platform/android-sdk
           [buildozer]
           log_level = 2
           EOF
@@ -66,6 +80,7 @@ jobs:
       - name: Build APK
         run: |
           export ANDROID_SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk
+          export ANDROID_HOME=$ANDROID_SDK_ROOT
           yes | buildozer android debug 2>&1 | tee build.log
         continue-on-error: true
 
