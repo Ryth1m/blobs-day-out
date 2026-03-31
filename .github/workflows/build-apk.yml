@@ -3,15 +3,12 @@ name: Build Android APK
 on:
   push:
     branches: [main]
-  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
-
+    runs-on: ubuntu-22.04  # More stable than ubuntu-latest (24.04)
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -24,37 +21,39 @@ jobs:
           sudo apt-get install -y \
             python3-pip build-essential git \
             libffi-dev libssl-dev zlib1g-dev liblzma-dev \
-            openjdk-17-jdk unzip autoconf libtool pkg-config cmake \
-            wget
+            openjdk-17-jdk unzip autoconf libtool pkg-config cmake
           pip install buildozer cython virtualenv
 
-      - name: Set up Android SDK (download)
+      - name: Set up Android SDK with correct paths
         run: |
           export ANDROID_SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk
-          mkdir -p $ANDROID_SDK_ROOT
-          cd /tmp
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-          unzip -q commandlinetools-linux-11076708_latest.zip
-          mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
-          mv cmdline-tools $ANDROID_SDK_ROOT/cmdline-tools/latest
-          # Set environment variables for this step and subsequent steps
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
-          # Also update PATH for the current shell (important!)
-          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
-          # Verify sdkmanager is now in PATH
-          which sdkmanager || echo "sdkmanager not found"
+          mkdir -p $ANDROID_SDK_ROOT/tools/bin
+          mkdir -p $HOME/.android
 
-      - name: Accept licenses and install SDK components
-        run: |
-          export ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT
-          export ANDROID_HOME=$ANDROID_HOME
-          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
-          # Accept licenses (silently)
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          # Install required packages
-          sdkmanager "platform-tools" "build-tools;33.0.2" "platforms;android-33"
+          # Download cmdline-tools (older stable version)
+          cd /tmp
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-6514223_latest.zip
+          unzip -q commandlinetools-linux-6514223_latest.zip
+
+          # Put sdkmanager where buildozer expects it (tools/bin/)
+          cp -r tools/* $ANDROID_SDK_ROOT/tools/
+          chmod +x $ANDROID_SDK_ROOT/tools/bin/sdkmanager
+
+          # Accept all licenses
+          echo "count=0" > $HOME/.android/repositories.cfg
+          yes | $ANDROID_SDK_ROOT/tools/bin/sdkmanager \
+            --sdk_root=$ANDROID_SDK_ROOT \
+            --licenses > /dev/null 2>&1 || true
+
+          # Install required SDK components
+          yes | $ANDROID_SDK_ROOT/tools/bin/sdkmanager \
+            --sdk_root=$ANDROID_SDK_ROOT \
+            "platform-tools" \
+            "build-tools;33.0.2" \
+            "platforms;android-33" || true
+
+          echo "SDK setup complete"
+          ls $ANDROID_SDK_ROOT/
 
       - name: Create buildozer.spec
         run: |
@@ -66,7 +65,11 @@ jobs:
           source.dir = .
           source.include_exts = py
           version = 1.0
-          requirements = python3,kivy==2.3.0,pygame
+          # START: IMPORTANT – pygame often fails on Android
+          # To use pygame, uncomment next line and also add SDL2 libs (see commented section below).
+          # requirements = python3,kivy==2.3.0,pygame,sdl2,sdl2_image,sdl2_mixer,sdl2_ttf
+          # For a stable build, use only Kivy (assuming your game uses Kivy's canvas)
+          requirements = python3,kivy==2.3.0
           orientation = landscape
           fullscreen = 1
           android.api = 33
@@ -74,15 +77,16 @@ jobs:
           android.archs = arm64-v8a
           android.accept_sdk_license = True
           android.sdk_path = /home/runner/.buildozer/android/platform/android-sdk
+          # If you add pygame, also add these lines:
+          # android.add_sdk = sdl2, sdl2_image, sdl2_mixer, sdl2_ttf
           [buildozer]
           log_level = 2
           EOF
 
-      - name: Build APK with Buildozer
+      - name: Build APK
         run: |
-          export ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT
-          export ANDROID_HOME=$ANDROID_HOME
-          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+          export ANDROID_SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk
+          export ANDROID_HOME=$ANDROID_SDK_ROOT
           yes | buildozer android debug 2>&1 | tee build.log
         continue-on-error: true
 
@@ -93,7 +97,7 @@ jobs:
           name: build-log
           path: build.log
 
-      - name: Upload APK (if successful)
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         if: always()
         with:
