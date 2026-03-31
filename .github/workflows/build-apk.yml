@@ -1,0 +1,55 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.13'
+          
+      - name: Install Buildozer dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip build-essential git \
+            libffi-dev libssl-dev zlib1g-dev liblzma-dev \
+            openjdk-17-jdk unzip
+          pip install buildozer cython
+          
+      - name: Create buildozer.spec
+        run: |
+          cat > buildozer.spec << 'EOF'
+          [app]
+          title = A Blob's Day Out
+          package.name = ablobsdayout
+          package.domain = org.blobgame
+          source.dir = .
+          source.include_exts = py
+          version = 1.0
+          requirements = python3,pygame
+          orientation = landscape
+          fullscreen = 1
+          android.permissions = VIBRATE
+          android.api = 33
+          android.minapi = 21
+          android.archs = arm64-v8a
+          [buildozer]
+          log_level = 2
+          EOF
+          
+      - name: Build APK
+        run: |
+          buildozer android debug
+          
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: blobs-day-out-debug.apk
+          path: bin/*.apk
