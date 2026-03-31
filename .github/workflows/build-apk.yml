@@ -9,20 +9,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          
-      - name: Install Buildozer dependencies
+
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-pip build-essential git \
+          sudo apt-get install -y \
+            python3-pip build-essential git \
             libffi-dev libssl-dev zlib1g-dev liblzma-dev \
-            openjdk-17-jdk unzip autoconf libtool pkg-config \
-            cmake libltdl-dev
+            openjdk-17-jdk unzip autoconf libtool pkg-config cmake
           pip install buildozer cython virtualenv
+
+      - name: Accept Android SDK licenses
+        run: |
+          mkdir -p $HOME/.android
+          echo "count=0" > $HOME/.android/repositories.cfg
+          JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
+          export ANDROID_SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk
+          mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
+          cd /tmp
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-6514223_latest.zip
+          unzip -q commandlinetools-linux-6514223_latest.zip -d $ANDROID_SDK_ROOT/cmdline-tools
+          mv $ANDROID_SDK_ROOT/cmdline-tools/tools $ANDROID_SDK_ROOT/cmdline-tools/latest || true
+          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
+            --sdk_root=$ANDROID_SDK_ROOT \
+            --licenses || true
+          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
+            --sdk_root=$ANDROID_SDK_ROOT \
+            "platform-tools" "build-tools;33.0.2" "platforms;android-33" || true
 
       - name: Create buildozer.spec
         run: |
@@ -40,19 +58,16 @@ jobs:
           android.api = 33
           android.minapi = 21
           android.archs = arm64-v8a
+          android.accept_sdk_license = True
           [buildozer]
           log_level = 2
           EOF
 
       - name: Build APK
         run: |
-          buildozer android debug 2>&1 | tee build.log
-          echo "Exit code: $?"
+          export ANDROID_SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk
+          yes | buildozer android debug 2>&1 | tee build.log
         continue-on-error: true
-
-      - name: Show build log tail
-        run: tail -100 build.log
-        if: always()
 
       - name: Upload build log
         uses: actions/upload-artifact@v4
@@ -61,7 +76,7 @@ jobs:
           name: build-log
           path: build.log
 
-      - name: Upload APK if exists
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         if: always()
         with:
